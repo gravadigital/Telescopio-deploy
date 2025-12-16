@@ -1,0 +1,105 @@
+services:
+  telescopio-database:
+    image: postgres:15-alpine
+    container_name: telescopio-${ENVIRONMENT}-database
+    restart: always
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - telescopio-database:/var/lib/postgresql/data
+    networks:
+      - telescopio-database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  telescopio-api:
+    build:
+      context: ../telescopio-api
+      dockerfile: Dockerfile
+    container_name: telescopio-${ENVIRONMENT}-api
+    restart: always
+    ports:
+      - "${API_PORT:-8080}:8080"
+    environment:
+      - VIRTUAL_HOST=api.${DOMAIN}
+      - VIRTUAL_PORT=8080
+      - LETSENCRYPT_HOST=api.${DOMAIN}
+      - DB_HOST=telescopio-${ENVIRONMENT}-database
+      - DB_PORT=5432
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${POSTGRES_DB}
+      - DB_SSLMODE=${DB_SSLMODE}
+      - PORT=8080
+      - GIN_MODE=${GIN_MODE}
+      - UPLOADS_DIR=/app/uploads
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS}
+      - CORS_ALLOW_METHODS=${CORS_ALLOW_METHODS}
+      - CORS_ALLOW_HEADERS=${CORS_ALLOW_HEADERS}
+    volumes:
+      - telescopio-uploads:/app/uploads
+    networks:
+      - ingress-network
+      - telescopio-database
+    depends_on:
+      telescopio-database:
+        condition: service_healthy
+
+  telescopio-web:
+    build:
+      context: ../Telescopio-web
+      dockerfile: docker/Dockerfile
+      args:
+        - REACT_APP_API_URL=${REACT_APP_API_URL}
+    container_name: telescopio-${ENVIRONMENT}-web
+    restart: always
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    environment:
+      - VIRTUAL_HOST=${DOMAIN}
+      - VIRTUAL_PORT=80
+      - LETSENCRYPT_HOST=${DOMAIN}
+    networks:
+      - ingress-network
+    depends_on:
+      - telescopio-api
+
+  telescopio-pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: telescopio-${ENVIRONMENT}-pgadmin
+    restart: always
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    environment:
+      - VIRTUAL_HOST=pgadmin.${DOMAIN}
+      - VIRTUAL_PORT=80
+      - LETSENCRYPT_HOST=pgadmin.${DOMAIN}
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD}
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    networks:
+      - ingress-network
+      - telescopio-database
+    profiles:
+      - tools
+
+networks:
+  telescopio-database:
+    name: "telescopio-${ENVIRONMENT}-database"
+  ingress-network:
+    external: true
+    name: "${INGRESS_NETWORK}"
+
+volumes:
+  telescopio-database:
+    name: "telescopio-${ENVIRONMENT}-database"
+  telescopio-uploads:
+    name: "telescopio-${ENVIRONMENT}-uploads"
