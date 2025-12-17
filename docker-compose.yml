@@ -1,42 +1,40 @@
 name: telescope
 
 networks:
-  telescopio-database:
-    name: "telescopio-${ENVIRONMENT}-database"
+  telescope-database:
+    name: "telescope-${ENVIRONMENT}-database"
   ingress-network:
     external: true
     name: "${INGRESS_NETWORK}"
 
 volumes:
-  telescopio-database:
-    name: "telescopio-${ENVIRONMENT}-database"
-  telescopio-uploads:
-    name: "telescopio-${ENVIRONMENT}-uploads"
+  telescope-database:
+    name: "telescope-${ENVIRONMENT}-database"
+  telescope-uploads:
+    name: "telescope-${ENVIRONMENT}-uploads"
 
 services:
-  telescopio-database:
+  telescope-database:
     image: postgres:15-alpine
-    container_name: telescopio-${ENVIRONMENT}-database
+    container_name: telescope-${ENVIRONMENT}-database
     restart: always
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-      - telescopio-database:/var/lib/postgresql/data
+      - telescope-database:/var/lib/postgresql/data
     networks:
-      - telescopio-database
+      - telescope-database
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  telescopio-api:
+  telescope-api:
     image: registry.git.grava.io/telescope/api:dev
-    container_name: telescopio-${ENVIRONMENT}-api
+    container_name: telescope-${ENVIRONMENT}-api
     restart: always
     ports:
       - "${API_PORT:-8080}:8080"
@@ -44,7 +42,7 @@ services:
       - VIRTUAL_HOST=api.${DOMAIN}
       - VIRTUAL_PORT=8080
       - LETSENCRYPT_HOST=api.${DOMAIN}
-      - DB_HOST=telescopio-${ENVIRONMENT}-database
+      - DB_HOST=${DB_HOST}
       - DB_PORT=5432
       - DB_USER=${POSTGRES_USER}
       - DB_PASSWORD=${POSTGRES_PASSWORD}
@@ -58,17 +56,17 @@ services:
       - CORS_ALLOW_METHODS=${CORS_ALLOW_METHODS}
       - CORS_ALLOW_HEADERS=${CORS_ALLOW_HEADERS}
     volumes:
-      - telescopio-uploads:/app/uploads
+      - telescope-uploads:/app/uploads
     networks:
       - ingress-network
-      - telescopio-database
+      - telescope-database
     depends_on:
-      telescopio-database:
+      telescope-database:
         condition: service_healthy
 
-  telescopio-web:
+  telescope-web:
     image: registry.git.grava.io/telescope/web:dev
-    container_name: telescopio-${ENVIRONMENT}-web
+    container_name: telescope-${ENVIRONMENT}-web
     restart: always
     ports:
       - "${WEB_PORT:-3000}:80"
@@ -79,11 +77,11 @@ services:
     networks:
       - ingress-network
     depends_on:
-      - telescopio-api
+      - telescope-api
 
-  telescopio-pgadmin:
+  telescope-pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: telescopio-${ENVIRONMENT}-pgadmin
+    container_name: telescope-${ENVIRONMENT}-pgadmin
     restart: always
     ports:
       - "${PGADMIN_PORT:-5050}:80"
@@ -96,6 +94,6 @@ services:
       - PGADMIN_CONFIG_SERVER_MODE=False
     networks:
       - ingress-network
-      - telescopio-database
+      - telescope-database
     profiles:
       - tools
