@@ -10,8 +10,8 @@ networks:
 volumes:
   telescope-database:
     name: "telescope-${ENVIRONMENT}-database"
-  telescope-uploads:
-    name: "telescope-${ENVIRONMENT}-uploads"
+  telescope-minio:
+    name: "telescope-${ENVIRONMENT}-minio"
 
 services:
   telescope-database:
@@ -48,19 +48,25 @@ services:
       - DB_SSLMODE=${DB_SSLMODE}
       - PORT=8080
       - GIN_MODE=${GIN_MODE}
-      - UPLOADS_DIR=/app/uploads
       - MAX_FILE_SIZE=${MAX_FILE_SIZE}
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS}
       - CORS_ALLOW_METHODS=${CORS_ALLOW_METHODS}
       - CORS_ALLOW_HEADERS=${CORS_ALLOW_HEADERS}
       - FRONTEND_URL=https://${DOMAIN}
-    volumes:
-      - telescope-uploads:/app/uploads
+      - STORAGE_PROVIDER=minio
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET:-telescopio}
+      - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      - MINIO_REGION=${MINIO_REGION:-us-east-1}
     networks:
       - ingress-network
       - telescope-database
     depends_on:
       telescope-database:
+        condition: service_healthy
+      telescope-minio:
         condition: service_healthy
 
   telescope-web:
@@ -94,3 +100,25 @@ services:
       - telescope-database
     profiles:
       - tools
+
+  telescope-minio:
+    image: minio/minio:latest
+    container_name: telescope-${ENVIRONMENT}-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - VIRTUAL_HOST=minio.${DOMAIN}
+      - VIRTUAL_PORT=9001
+      - LETSENCRYPT_HOST=minio.${DOMAIN}
+    volumes:
+      - telescope-minio:/data
+    networks:
+      - telescope-database
+      - ingress-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
