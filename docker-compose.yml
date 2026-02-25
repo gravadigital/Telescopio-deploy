@@ -36,8 +36,6 @@ services:
     image: registry.git.grava.io/telescope/api:dev
     container_name: telescope-${ENVIRONMENT}-api
     restart: always
-    ports:
-      - "${API_PORT:-8080}:8080"
     environment:
       - VIRTUAL_HOST=api.${DOMAIN}
       - VIRTUAL_PORT=8080
@@ -55,6 +53,7 @@ services:
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS}
       - CORS_ALLOW_METHODS=${CORS_ALLOW_METHODS}
       - CORS_ALLOW_HEADERS=${CORS_ALLOW_HEADERS}
+      - FRONTEND_URL=https://${DOMAIN}
     volumes:
       - telescope-uploads:/app/uploads
     networks:
@@ -68,8 +67,6 @@ services:
     image: registry.git.grava.io/telescope/web:dev
     container_name: telescope-${ENVIRONMENT}-web
     restart: always
-    ports:
-      - "${WEB_PORT:-3000}:80"
     environment:
       - VIRTUAL_HOST=${DOMAIN}
       - VIRTUAL_PORT=80
