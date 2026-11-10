@@ -115,20 +115,18 @@ services:
     container_name: telescope-${ENVIRONMENT}-minio
     restart: always
     command: server /data --console-address ":9001"
-    # Sin ports: la consola la publica el ingress en minio.${DOMAIN}.
+    # Sin ports y fuera del ingress: nadie llega a MinIO desde internet. La api le habla
+    # por la red interna y las descargas pasan por la api. La consola (9001) se abre por
+    # túnel SSH cuando hace falta: ver verify-minio-production.sh.
     # Las credenciales root son distintas de las de la api (MINIO_ACCESS_KEY). Con datos
     # ya guardados no hay que cambiarlas: MinIO no abriría su configuración con otras.
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
-      - VIRTUAL_HOST=minio.${DOMAIN}
-      - VIRTUAL_PORT=9001
-      - LETSENCRYPT_HOST=minio.${DOMAIN}
     volumes:
       - telescope-minio:/data
     networks:
       - telescope-database
-      - ingress-network
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s

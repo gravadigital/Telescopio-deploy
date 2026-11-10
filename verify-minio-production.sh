@@ -53,7 +53,9 @@ echo ""
 
 echo "=== Verificación completada ==="
 echo ""
-echo "💡 Para acceder a la consola web de MinIO:"
-echo "   URL: https://minio.${DOMAIN:-tu-dominio.com}"
+MINIO_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "telescope-${ENVIRONMENT}-minio" 2>/dev/null)
+echo "💡 La consola web de MinIO no está publicada. Para abrirla, desde tu máquina:"
+echo "   ssh -L 9001:${MINIO_IP:-<ip-del-contenedor>}:9001 <usuario>@<servidor>"
+echo "   URL: http://localhost:9001"
 echo "   Usuario: Ver variable MINIO_ROOT_USER en .env"
 echo "   Password: Ver variable MINIO_ROOT_PASSWORD en .env"
