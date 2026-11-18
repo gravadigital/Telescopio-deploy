@@ -7,7 +7,9 @@
 #   docker compose pull && docker compose up -d
 #
 # Los nombres de proyecto, servicios y volúmenes son los de siempre: cambiarlos
-# dejaría la base y los archivos en volúmenes huérfanos.
+# dejaría la base y los archivos en volúmenes huérfanos. Excepción: telescope-storage
+# reemplazó a telescope-minio sin migrar datos; el volumen telescope-<env>-minio que
+# quede en un servidor ya no lo usa nadie.
 name: telescope
 
 networks:
@@ -20,8 +22,10 @@ networks:
 volumes:
   telescope-database:
     name: "telescope-${ENVIRONMENT}-database"
-  telescope-minio:
-    name: "telescope-${ENVIRONMENT}-minio"
+  telescope-storage-meta:
+    name: "telescope-${ENVIRONMENT}-storage-meta"
+  telescope-storage-data:
+    name: "telescope-${ENVIRONMENT}-storage-data"
 
 services:
   telescope-database:
@@ -66,13 +70,12 @@ services:
       - "JWT_SECRET=${JWT_SECRET:?falta JWT_SECRET en .env, generalo con openssl rand -base64 32}"
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-https://${DOMAIN}}
       - FRONTEND_URL=https://${DOMAIN}
-      - STORAGE_PROVIDER=minio
-      - MINIO_ENDPOINT=telescope-minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      - MINIO_BUCKET=${MINIO_BUCKET:-telescopio}
-      - MINIO_USE_SSL=false
-      - MINIO_REGION=us-east-1
+      - STORAGE_PROVIDER=s3
+      - S3_ENDPOINT=http://telescope-storage:3900
+      - S3_REGION=garage
+      - S3_BUCKET=${S3_BUCKET:-telescope}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - EMAIL_ENABLED=${EMAIL_ENABLED:-false}
       - SMTP_HOST=${SMTP_HOST:-}
@@ -88,8 +91,8 @@ services:
     depends_on:
       telescope-database:
         condition: service_healthy
-      telescope-minio-init:
-        condition: service_completed_successfully
+      telescope-storage:
+        condition: service_healthy
 
   # La web lee su configuración al arrancar: el contenedor la escribe en config.js.
   # API_URL es la URL de la api como la ve el navegador, no un nombre interno.
@@ -108,58 +111,42 @@ services:
     depends_on:
       - telescope-api
 
-  telescope-minio:
-    # MinIO dejó de publicar imágenes (Docker Hub y quay.io); pgsty mantiene builds del
-    # mismo código. Tag fijo, igual al del monorepo.
-    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
-    container_name: telescope-${ENVIRONMENT}-minio
+  # Almacenamiento S3 de las propuestas. Corre Garage, pero el servicio se llama storage:
+  # es el host que ve la api y no cambia si cambia la herramienta.
+  #
+  # Un solo nodo: --single-node arma el layout y --default-bucket crea la clave de la api y
+  # el bucket al arrancar, en forma idempotente. La api no crea el bucket (en Garage
+  # quedaría con alias local): lo verifica al arrancar.
+  #
+  # Sin ports, sin subdominio y fuera del ingress: nadie llega desde internet. La api le
+  # habla por la red interna y las descargas pasan por ella. Si algún día hace falta
+  # publicarlo (links prefirmados), va en storage.${DOMAIN} y al puerto 3900, nunca al 3903.
+  #
+  # Con datos guardados no hay que cambiar S3_ACCESS_KEY_ID ni S3_SECRET_ACCESS_KEY:
+  # Garage no arranca si el secreto no coincide con la clave que ya existe.
+  telescope-storage:
+    image: dxflrs/garage:v2.4.1
+    container_name: telescope-${ENVIRONMENT}-storage
     restart: always
-    command: server /data --console-address ":9001"
-    # Sin ports y fuera del ingress: nadie llega a MinIO desde internet. La api le habla
-    # por la red interna y las descargas pasan por la api. La consola (9001) se abre por
-    # túnel SSH cuando hace falta: ver verify-minio-production.sh.
-    # Las credenciales root son distintas de las de la api (MINIO_ACCESS_KEY). Con datos
-    # ya guardados no hay que cambiarlas: MinIO no abriría su configuración con otras.
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - "GARAGE_RPC_SECRET=${STORAGE_RPC_SECRET:?falta STORAGE_RPC_SECRET en .env, generalo con openssl rand -hex 32}"
+      - "GARAGE_ADMIN_TOKEN=${STORAGE_ADMIN_TOKEN:?falta STORAGE_ADMIN_TOKEN en .env, generalo con openssl rand -base64 32}"
+      - "GARAGE_DEFAULT_ACCESS_KEY=${S3_ACCESS_KEY_ID:?falta S3_ACCESS_KEY_ID en .env}"
+      - "GARAGE_DEFAULT_SECRET_KEY=${S3_SECRET_ACCESS_KEY:?falta S3_SECRET_ACCESS_KEY en .env}"
+      - GARAGE_DEFAULT_BUCKET=${S3_BUCKET:-telescope}
     volumes:
-      - telescope-minio:/data
+      - ./storage/garage.toml:/etc/garage.toml:ro
+      - telescope-storage-meta:/var/lib/garage/meta
+      - telescope-storage-data:/var/lib/garage/data
     networks:
       - telescope-database
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # La imagen no trae shell, curl ni wget: el healthcheck usa el propio binario.
+      test: ["CMD", "/garage", "health", "-q"]
       interval: 10s
       timeout: 10s
-      retries: 10
-
-  # Crea el bucket y termina: la api no lo crea, y sin él la primera subida falla con
-  # NoSuchBucket. Reintenta porque que minio esté healthy no garantiza que ya se lo
-  # resuelva por nombre desde otro contenedor.
-  telescope-minio-init:
-    image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
-    container_name: telescope-${ENVIRONMENT}-minio-init
-    restart: "no"
-    # Con las credenciales root: crear un bucket es una operación de administrador.
-    environment:
-      - MINIO_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
-      - MINIO_BUCKET=${MINIO_BUCKET:-telescopio}
-    entrypoint: >
-      sh -c '
-      for i in $$(seq 1 30); do
-        mc alias set local http://telescope-minio:9000 "$$MINIO_USER" "$$MINIO_PASSWORD" >/dev/null 2>&1 && break;
-        echo "esperando a minio ($$i/30)...";
-        sleep 2;
-      done;
-      mc alias set local http://telescope-minio:9000 "$$MINIO_USER" "$$MINIO_PASSWORD" &&
-      mc mb --ignore-existing "local/$$MINIO_BUCKET"
-      '
-    depends_on:
-      telescope-minio:
-        condition: service_healthy
-    networks:
-      - telescope-database
+      retries: 12
 
   # Opcional: docker compose --profile tools up -d telescope-pgadmin
   # Sin ports: lo publica el ingress en pgadmin.${DOMAIN}.

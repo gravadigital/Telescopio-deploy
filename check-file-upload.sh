@@ -1,43 +1,29 @@
 #!/bin/bash
-
-# Script para verificar un archivo específico en MinIO
-# Uso: ./check-file-upload.sh <nombre_archivo>
-
-if [ -z "$1" ]; then
-    echo "Uso: $0 <nombre_archivo>"
-    echo "Ejemplo: $0 abc123_xyz789_1234567890.jpg"
-    exit 1
+# Verifica que un archivo exista en el storage, con su tamaño y Content-Type.
+# Uso, desde este directorio: ./check-file-upload.sh <key>
+# La key es attachments.file_path, por ejemplo <event_id>_<participant_id>_<ts>.pdf
+#
+# El storage no se publica: la consulta sale de un contenedor de una sola vez en su red
+# interna, firmada (SigV4) con la clave de la api.
+set -u
+if [ -z "${1:-}" ]; then
+  echo "Uso: $0 <key>"
+  echo "Ejemplo: $0 0b1c..._9f2e..._1794857180.pdf"
+  exit 1
 fi
-
-FILENAME=$1
+set -a; [ -f .env ] && . ./.env; set +a
 ENVIRONMENT="${ENVIRONMENT:-dev}"
+BUCKET="${S3_BUCKET:-telescope}"
 
-echo "=== Buscando archivo: $FILENAME ==="
-echo ""
-
-# Buscar el archivo en MinIO
-echo "🔍 Buscando en bucket..."
-RESULT=$(docker compose exec -T telescope-minio mc find /data/telescopio -name "*${FILENAME}*" 2>/dev/null)
-
-if [ -z "$RESULT" ]; then
-    echo "❌ Archivo no encontrado en MinIO"
-    echo ""
-    echo "💡 Últimos archivos en el bucket:"
-    docker compose exec -T telescope-minio mc ls --recursive /data/telescopio 2>/dev/null | tail -10
-else
-    echo "✅ Archivo encontrado:"
-    echo "$RESULT"
-    echo ""
-    
-    # Mostrar información del archivo
-    echo "📊 Información del archivo:"
-    docker compose exec -T telescope-minio mc stat /data/telescopio/${FILENAME} 2>/dev/null || \
-    docker compose exec -T telescope-minio mc ls -l /data/telescopio/${FILENAME} 2>/dev/null
-fi
-
-echo ""
-echo "=== Verificación en base de datos ==="
-# Buscar en la base de datos
-docker compose exec -T telescope-database psql -U ${POSTGRES_USER:-devuser} -d ${POSTGRES_DB:-telescope-db} -c "SELECT id, original_name, file_path, file_size, mime_type, uploaded_at FROM attachments WHERE file_path LIKE '%${FILENAME}%' ORDER BY uploaded_at DESC LIMIT 5;" 2>/dev/null || echo "No se pudo consultar la base de datos"
-
-echo ""
+echo "=== Buscando ${BUCKET}/$1 ==="
+HEADERS=$(docker run --rm --quiet --network "telescope-${ENVIRONMENT}-database" curlimages/curl:8.16.0 \
+  -s -I --aws-sigv4 "aws:amz:garage:s3" --user "${S3_ACCESS_KEY_ID}:${S3_SECRET_ACCESS_KEY}" \
+  "http://telescope-storage:3900/${BUCKET}/$1")
+STATUS=$(echo "$HEADERS" | head -1 | tr -d '\r')
+case "$STATUS" in
+  *" 200"*)
+    echo "✅ Archivo encontrado"
+    echo "$HEADERS" | grep -i -E '^(content-length|content-type|last-modified|etag):' | tr -d '\r' ;;
+  *" 404"*) echo "❌ No existe esa key en el bucket" ;;
+  *) echo "❌ Respuesta inesperada: ${STATUS:-sin respuesta}" ;;
+esac

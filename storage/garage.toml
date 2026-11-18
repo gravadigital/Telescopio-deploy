@@ -1,0 +1,21 @@
+# Configuración del servicio telescope-storage (Garage, almacenamiento S3).
+# rpc_secret y admin_token entran por variables de entorno (GARAGE_RPC_SECRET,
+# GARAGE_ADMIN_TOKEN) desde docker-compose.yml, que las toma de .env.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"            # en un solo nodo resiste mejor que lmdb un corte de luz
+replication_factor = 1          # un solo nodo: SIN redundancia, hacen falta backups del volumen
+# Snapshot periódico de la metadata dentro del mismo volumen, para poder recuperarla.
+metadata_auto_snapshot_interval = "6h"
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+s3_region = "garage"            # la api firma con S3_REGION, que tiene que coincidir
+api_bind_addr = "[::]:3900"
+
+# Sin [s3_web]: el bucket es privado y las descargas pasan por la api.
+
+[admin]
+api_bind_addr = "[::]:3903"     # /health y administración; nunca se publica
