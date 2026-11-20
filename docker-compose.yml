@@ -1,62 +1,69 @@
-# Telescope en un servidor, detrás del nginx que hace de ingress (INGRESS_NETWORK).
+# OpenParallax en un servidor, detrás del nginx que hace de ingress (INGRESS_NETWORK).
 #
-# Baja las imágenes publicadas por el CI del monorepo (gravadigital/telescope):
-# gravadigital/telescope-api y gravadigital/telescope-web. Ninguna trae configuración
+# Baja las imágenes publicadas por el CI del monorepo (gravadigital/Open-Parallax):
+# gravadigital/openparallax-api y gravadigital/openparallax-web. Ninguna trae configuración
 # de una instalación: todo sale de .env, al arrancar. Copiar .env.dist a .env.
 #
 #   docker compose pull && docker compose up -d
 #
-# Los nombres de proyecto, servicios y volúmenes son los de siempre: cambiarlos
-# dejaría la base y los archivos en volúmenes huérfanos. Excepción: telescope-storage
-# reemplazó a telescope-minio sin migrar datos; el volumen telescope-<env>-minio que
-# quede en un servidor ya no lo usa nadie.
-name: telescope
+# Migración desde el nombre anterior (Telescope), una sola vez por servidor: bajar el
+# stack viejo SIN -v, que borraría los volúmenes, y recién después levantar este.
+#
+#   docker compose -p telescope down && docker compose pull && docker compose up -d
+#
+# La base es el único volumen que conserva el nombre anterior (telescope-<env>-database):
+# renombrarlo dejaría los datos en un volumen huérfano. El storage arranca vacío, con el
+# bucket nuevo: se reemplazó a MinIO sin migrar archivos. Los volúmenes
+# telescope-<env>-minio y telescope-<env>-storage-*, y la red telescope-<env>-database,
+# ya no los usa nadie.
+name: openparallax
 
 networks:
-  telescope-database:
-    name: "telescope-${ENVIRONMENT}-database"
+  openparallax-database:
+    name: "openparallax-${ENVIRONMENT}-database"
   ingress-network:
     external: true
     name: "${INGRESS_NETWORK}"
 
 volumes:
-  telescope-database:
+  openparallax-database:
+    # Nombre anterior a propósito: es donde ya están los datos (ver arriba).
     name: "telescope-${ENVIRONMENT}-database"
-  telescope-storage-meta:
-    name: "telescope-${ENVIRONMENT}-storage-meta"
-  telescope-storage-data:
-    name: "telescope-${ENVIRONMENT}-storage-data"
+  openparallax-storage-meta:
+    name: "openparallax-${ENVIRONMENT}-storage-meta"
+  openparallax-storage-data:
+    name: "openparallax-${ENVIRONMENT}-storage-data"
 
 services:
-  telescope-database:
+  openparallax-database:
     image: postgres:15-alpine
-    container_name: telescope-${ENVIRONMENT}-database
+    container_name: openparallax-${ENVIRONMENT}-database
     restart: always
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-      - telescope-database:/var/lib/postgresql/data
+      - openparallax-database:/var/lib/postgresql/data
     networks:
-      - telescope-database
+      - openparallax-database
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  telescope-api:
+  openparallax-api:
     # dev sigue la punta de la rama dev (se republica en cada push); un número (0.2.0)
     # fija un release. Las dos imágenes llevan siempre el mismo número.
-    image: gravadigital/telescope-api:${IMAGES_TAG:-dev}
-    container_name: telescope-${ENVIRONMENT}-api
+    image: gravadigital/openparallax-api:${IMAGES_TAG:-dev}
+    container_name: openparallax-${ENVIRONMENT}-api
     restart: always
     environment:
       - VIRTUAL_HOST=api.${DOMAIN}
       - VIRTUAL_PORT=8080
       - LETSENCRYPT_HOST=api.${DOMAIN}
-      - DB_HOST=telescope-database
+      - DB_HOST=openparallax-database
       - DB_PORT=5432
       - DB_USER=${POSTGRES_USER}
       - DB_PASSWORD=${POSTGRES_PASSWORD}
@@ -71,9 +78,9 @@ services:
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-https://${DOMAIN}}
       - FRONTEND_URL=https://${DOMAIN}
       - STORAGE_PROVIDER=s3
-      - S3_ENDPOINT=http://telescope-storage:3900
+      - S3_ENDPOINT=http://openparallax-storage:3900
       - S3_REGION=garage
-      - S3_BUCKET=${S3_BUCKET:-telescope}
+      - S3_BUCKET=${S3_BUCKET:-openparallax}
       - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
@@ -84,21 +91,21 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_SECURE=${SMTP_SECURE:-true}
       - EMAIL_FROM=${EMAIL_FROM:-}
-      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-Telescopio}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-OpenParallax}
     networks:
       - ingress-network
-      - telescope-database
+      - openparallax-database
     depends_on:
-      telescope-database:
+      openparallax-database:
         condition: service_healthy
-      telescope-storage:
+      openparallax-storage:
         condition: service_healthy
 
   # La web lee su configuración al arrancar: el contenedor la escribe en config.js.
   # API_URL es la URL de la api como la ve el navegador, no un nombre interno.
-  telescope-web:
-    image: gravadigital/telescope-web:${IMAGES_TAG:-dev}
-    container_name: telescope-${ENVIRONMENT}-web
+  openparallax-web:
+    image: gravadigital/openparallax-web:${IMAGES_TAG:-dev}
+    container_name: openparallax-${ENVIRONMENT}-web
     restart: always
     environment:
       - VIRTUAL_HOST=${DOMAIN}
@@ -109,7 +116,7 @@ services:
     networks:
       - ingress-network
     depends_on:
-      - telescope-api
+      - openparallax-api
 
   # Almacenamiento S3 de las propuestas. Corre Garage, pero el servicio se llama storage:
   # es el host que ve la api y no cambia si cambia la herramienta.
@@ -124,9 +131,9 @@ services:
   #
   # Con datos guardados no hay que cambiar S3_ACCESS_KEY_ID ni S3_SECRET_ACCESS_KEY:
   # Garage no arranca si el secreto no coincide con la clave que ya existe.
-  telescope-storage:
+  openparallax-storage:
     image: dxflrs/garage:v2.4.1
-    container_name: telescope-${ENVIRONMENT}-storage
+    container_name: openparallax-${ENVIRONMENT}-storage
     restart: always
     command: ["/garage", "server", "--single-node", "--default-bucket"]
     environment:
@@ -134,13 +141,13 @@ services:
       - "GARAGE_ADMIN_TOKEN=${STORAGE_ADMIN_TOKEN:?falta STORAGE_ADMIN_TOKEN en .env, generalo con openssl rand -base64 32}"
       - "GARAGE_DEFAULT_ACCESS_KEY=${S3_ACCESS_KEY_ID:?falta S3_ACCESS_KEY_ID en .env}"
       - "GARAGE_DEFAULT_SECRET_KEY=${S3_SECRET_ACCESS_KEY:?falta S3_SECRET_ACCESS_KEY en .env}"
-      - GARAGE_DEFAULT_BUCKET=${S3_BUCKET:-telescope}
+      - GARAGE_DEFAULT_BUCKET=${S3_BUCKET:-openparallax}
     volumes:
       - ./storage/garage.toml:/etc/garage.toml:ro
-      - telescope-storage-meta:/var/lib/garage/meta
-      - telescope-storage-data:/var/lib/garage/data
+      - openparallax-storage-meta:/var/lib/garage/meta
+      - openparallax-storage-data:/var/lib/garage/data
     networks:
-      - telescope-database
+      - openparallax-database
     healthcheck:
       # La imagen no trae shell, curl ni wget: el healthcheck usa el propio binario.
       test: ["CMD", "/garage", "health", "-q"]
@@ -148,11 +155,11 @@ services:
       timeout: 10s
       retries: 12
 
-  # Opcional: docker compose --profile tools up -d telescope-pgadmin
+  # Opcional: docker compose --profile tools up -d openparallax-pgadmin
   # Sin ports: lo publica el ingress en pgadmin.${DOMAIN}.
-  telescope-pgadmin:
+  openparallax-pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: telescope-${ENVIRONMENT}-pgadmin
+    container_name: openparallax-${ENVIRONMENT}-pgadmin
     restart: always
     environment:
       - VIRTUAL_HOST=pgadmin.${DOMAIN}
@@ -163,6 +170,6 @@ services:
       - PGADMIN_CONFIG_SERVER_MODE=False
     networks:
       - ingress-network
-      - telescope-database
+      - openparallax-database
     profiles:
       - tools

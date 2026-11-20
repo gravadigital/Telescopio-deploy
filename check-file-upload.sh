@@ -13,12 +13,12 @@ if [ -z "${1:-}" ]; then
 fi
 set -a; [ -f .env ] && . ./.env; set +a
 ENVIRONMENT="${ENVIRONMENT:-dev}"
-BUCKET="${S3_BUCKET:-telescope}"
+BUCKET="${S3_BUCKET:-openparallax}"
 
 echo "=== Buscando ${BUCKET}/$1 ==="
-HEADERS=$(docker run --rm --quiet --network "telescope-${ENVIRONMENT}-database" curlimages/curl:8.16.0 \
+HEADERS=$(docker run --rm --quiet --network "openparallax-${ENVIRONMENT}-database" curlimages/curl:8.16.0 \
   -s -I --aws-sigv4 "aws:amz:garage:s3" --user "${S3_ACCESS_KEY_ID}:${S3_SECRET_ACCESS_KEY}" \
-  "http://telescope-storage:3900/${BUCKET}/$1")
+  "http://openparallax-storage:3900/${BUCKET}/$1")
 STATUS=$(echo "$HEADERS" | head -1 | tr -d '\r')
 case "$STATUS" in
   *" 200"*)

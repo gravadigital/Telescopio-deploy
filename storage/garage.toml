@@ -1,4 +1,4 @@
-# Configuración del servicio telescope-storage (Garage, almacenamiento S3).
+# Configuración del servicio openparallax-storage (Garage, almacenamiento S3).
 # rpc_secret y admin_token entran por variables de entorno (GARAGE_RPC_SECRET,
 # GARAGE_ADMIN_TOKEN) desde docker-compose.yml, que las toma de .env.
 metadata_dir = "/var/lib/garage/meta"
