@@ -6,16 +6,6 @@
 #
 #   docker compose pull && docker compose up -d
 #
-# Migración desde el nombre anterior (Telescope), una sola vez por servidor: bajar el
-# stack viejo SIN -v, que borraría los volúmenes, y recién después levantar este.
-#
-#   docker compose -p telescope down && docker compose pull && docker compose up -d
-#
-# La base es el único volumen que conserva el nombre anterior (telescope-<env>-database):
-# renombrarlo dejaría los datos en un volumen huérfano. El storage arranca vacío, con el
-# bucket nuevo: se reemplazó a MinIO sin migrar archivos. Los volúmenes
-# telescope-<env>-minio y telescope-<env>-storage-*, y la red telescope-<env>-database,
-# ya no los usa nadie.
 name: openparallax
 
 networks:
@@ -27,8 +17,7 @@ networks:
 
 volumes:
   openparallax-database:
-    # Nombre anterior a propósito: es donde ya están los datos (ver arriba).
-    name: "telescope-${ENVIRONMENT}-database"
+    name: "openparallax-${ENVIRONMENT}-database"
   openparallax-storage-meta:
     name: "openparallax-${ENVIRONMENT}-storage-meta"
   openparallax-storage-data:
